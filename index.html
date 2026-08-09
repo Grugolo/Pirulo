@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Demo Piped API - Ricerca YouTube Gratuita</title>
+  <title>Demo Ricerca Senza Quota API</title>
   <style>
     :root {
       --bg: #121212;
@@ -87,8 +87,8 @@
 </head>
 <body>
 
-  <h2>Piped API Search Demo</h2>
-  <input type="text" id="searchInput" class="search-box" placeholder="Cerca un brano o artista su YouTube..." />
+  <h2>Ricerca YouTube Gratuita (Invidious API)</h2>
+  <input type="text" id="searchInput" class="search-box" placeholder="Cerca un brano o artista..." />
 
   <div id="results" class="results-container">
     <div class="status-msg">Digita qualcosa per iniziare la ricerca</div>
@@ -97,17 +97,17 @@
   <script>
     const searchInput = document.getElementById('searchInput');
     const resultsContainer = document.getElementById('results');
-    
-    // Lista di istanze Piped pubbliche per fallback se la principale è lenta
-    const PIPED_INSTANCES = [
-      'https://pipedapi.kavin.rocks',
-      'https://api.piped.privacydev.net',
-      'https://pipedapi.mha.fi'
+
+    // Endpoint Invidious e Piped pubblici attivi ed estremamente permissivi con il CORS
+    const API_SERVERS = [
+      { type: 'invidious', url: 'https://inv.riverside.rocks' },
+      { type: 'invidious', url: 'https://invidious.nerqv.ps' },
+      { type: 'invidious', url: 'https://vid.puffyan.us' },
+      { type: 'piped',     url: 'https://pipedapi.mha.fi' }
     ];
 
     let debounceTimer = null;
 
-    // Ascolta l'input con un debounce di 500ms per evitare richieste inutili
     searchInput.addEventListener('input', (e) => {
       clearTimeout(debounceTimer);
       const query = e.target.value.trim();
@@ -117,50 +117,74 @@
         return;
       }
 
-      debounceTimer = setTimeout(() => searchPiped(query), 500);
+      debounceTimer = setTimeout(() => searchFreeAPI(query), 500);
     });
 
-    async function searchPiped(query) {
+    async function searchFreeAPI(query) {
       resultsContainer.innerHTML = `<div class="status-msg">Ricerca in corso...</div>`;
 
-      // Prova le istanze Piped in sequenza
-      for (const instance of PIPED_INSTANCES) {
+      for (const server of API_SERVERS) {
         try {
-          const url = `${instance}/search?q=${encodeURIComponent(query)}&filter=videos`;
-          const res = await fetch(url);
+          let reqUrl = '';
+          if (server.type === 'invidious') {
+            reqUrl = `${server.url}/api/v1/search?q=${encodeURIComponent(query)}&type=video`;
+          } else {
+            reqUrl = `${server.url}/search?q=${encodeURIComponent(query)}&filter=videos`;
+          }
+
+          const res = await fetch(reqUrl);
           if (!res.ok) continue;
 
           const data = await res.json();
-          renderResults(data.items || []);
-          return; // Successo, esce dalla funzione
+          const parsedResults = parseResponse(data, server.type);
+
+          if (parsedResults.length > 0) {
+            renderResults(parsedResults);
+            return; // Trovato e mostrato con successo
+          }
 
         } catch (err) {
-          console.warn(`Istanza ${instance} non raggiungibile, provo la successiva...`);
+          console.warn(`Server ${server.url} non raggiungibile (CORS/Network), provo il successivo...`);
         }
       }
 
-      resultsContainer.innerHTML = `<div class="status-msg" style="color:#ff5555;">Errore durante il recupero dei dati da Piped.</div>`;
+      resultsContainer.innerHTML = `<div class="status-msg" style="color:#ff5555;">Tutti i server di riserva sono momentaneamente irraggiungibili.</div>`;
+    }
+
+    function parseResponse(data, type) {
+      if (!Array.isArray(data) && !data.items) return [];
+
+      if (type === 'invidious') {
+        return (data || []).map(item => ({
+          id: item.videoId,
+          title: item.title,
+          uploader: item.author,
+          thumb: item.videoThumbnails ? item.videoThumbnails[0]?.url : `https://i.ytimg.com/vi/${item.videoId}/hqdefault.jpg`,
+          duration: item.lengthSeconds
+        }));
+      } else {
+        // Piped
+        return (data.items || []).map(item => ({
+          id: item.url ? item.url.replace('/watch?v=', '') : '',
+          title: item.title,
+          uploader: item.uploaderName,
+          thumb: item.thumbnail,
+          duration: item.duration
+        }));
+      }
     }
 
     function renderResults(items) {
-      if (!items.length) {
-        resultsContainer.innerHTML = `<div class="status-msg">Nessun risultato trovato</div>`;
-        return;
-      }
-
-      resultsContainer.innerHTML = ''; // Pulisce i vecchi risultati
+      resultsContainer.innerHTML = '';
 
       items.slice(0, 8).forEach(item => {
-        // Estrae l'ID YouTube dal link fornito da Piped (es. "/watch?v=dQw4w9WgXcQ")
-        const videoId = item.url ? item.url.replace('/watch?v=', '') : '';
-
         const card = document.createElement('div');
         card.className = 'video-card';
         card.innerHTML = `
-          <img class="video-thumb" src="${item.thumbnail}" alt="thumb" loading="lazy" />
+          <img class="video-thumb" src="${item.thumb}" alt="thumb" loading="lazy" onError="this.src='https://placehold.co/100x56?text=No+Img'" />
           <div class="video-info">
             <div class="video-title" title="${item.title}">${item.title}</div>
-            <div class="video-meta">${item.uploaderName} • ${formatDuration(item.duration)} • ID: <code>${videoId}</code></div>
+            <div class="video-meta">${item.uploader || 'YouTube'} • ${formatDuration(item.duration)} • ID: <code>${item.id}</code></div>
           </div>
         `;
 
