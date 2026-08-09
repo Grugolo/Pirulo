@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Demo Piped API - Ricerca YouTube Gratuita</title>
+  <style>
+    :root {
+      --bg: #121212;
+      --card-bg: #1e1e1e;
+      --text: #ffffff;
+      --text-dim: #aaaaaa;
+      --accent: #ff0055;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      max-width: 600px;
+      margin: 20px auto;
+      padding: 0 15px;
+    }
+
+    h2 { text-align: center; color: var(--accent); }
+
+    .search-box {
+      width: 100%;
+      padding: 12px;
+      font-size: 16px;
+      border: 2px solid #333;
+      border-radius: 8px;
+      background: #222;
+      color: #fff;
+      box-sizing: border-box;
+      outline: none;
+    }
+
+    .search-box:focus { border-color: var(--accent); }
+
+    .results-container {
+      margin-top: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .video-card {
+      display: flex;
+      align-items: center;
+      background-color: var(--card-bg);
+      padding: 10px;
+      border-radius: 8px;
+      gap: 12px;
+    }
+
+    .video-thumb {
+      width: 100px;
+      height: 56px;
+      object-fit: cover;
+      border-radius: 4px;
+      background: #333;
+    }
+
+    .video-info { flex: 1; overflow: hidden; }
+
+    .video-title {
+      font-size: 14px;
+      font-weight: bold;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-bottom: 4px;
+    }
+
+    .video-meta {
+      font-size: 12px;
+      color: var(--text-dim);
+    }
+
+    .status-msg {
+      text-align: center;
+      color: var(--text-dim);
+      padding: 20px;
+    }
+  </style>
+</head>
+<body>
+
+  <h2>Piped API Search Demo</h2>
+  <input type="text" id="searchInput" class="search-box" placeholder="Cerca un brano o artista su YouTube..." />
+
+  <div id="results" class="results-container">
+    <div class="status-msg">Digita qualcosa per iniziare la ricerca</div>
+  </div>
+
+  <script>
+    const searchInput = document.getElementById('searchInput');
+    const resultsContainer = document.getElementById('results');
+    
+    // Lista di istanze Piped pubbliche per fallback se la principale è lenta
+    const PIPED_INSTANCES = [
+      'https://pipedapi.kavin.rocks',
+      'https://api.piped.privacydev.net',
+      'https://pipedapi.mha.fi'
+    ];
+
+    let debounceTimer = null;
+
+    // Ascolta l'input con un debounce di 500ms per evitare richieste inutili
+    searchInput.addEventListener('input', (e) => {
+      clearTimeout(debounceTimer);
+      const query = e.target.value.trim();
+
+      if (query.length < 2) {
+        resultsContainer.innerHTML = `<div class="status-msg">Digita qualcosa per iniziare la ricerca</div>`;
+        return;
+      }
+
+      debounceTimer = setTimeout(() => searchPiped(query), 500);
+    });
+
+    async function searchPiped(query) {
+      resultsContainer.innerHTML = `<div class="status-msg">Ricerca in corso...</div>`;
+
+      // Prova le istanze Piped in sequenza
+      for (const instance of PIPED_INSTANCES) {
+        try {
+          const url = `${instance}/search?q=${encodeURIComponent(query)}&filter=videos`;
+          const res = await fetch(url);
+          if (!res.ok) continue;
+
+          const data = await res.json();
+          renderResults(data.items || []);
+          return; // Successo, esce dalla funzione
+
+        } catch (err) {
+          console.warn(`Istanza ${instance} non raggiungibile, provo la successiva...`);
+        }
+      }
+
+      resultsContainer.innerHTML = `<div class="status-msg" style="color:#ff5555;">Errore durante il recupero dei dati da Piped.</div>`;
+    }
+
+    function renderResults(items) {
+      if (!items.length) {
+        resultsContainer.innerHTML = `<div class="status-msg">Nessun risultato trovato</div>`;
+        return;
+      }
+
+      resultsContainer.innerHTML = ''; // Pulisce i vecchi risultati
+
+      items.slice(0, 8).forEach(item => {
+        // Estrae l'ID YouTube dal link fornito da Piped (es. "/watch?v=dQw4w9WgXcQ")
+        const videoId = item.url ? item.url.replace('/watch?v=', '') : '';
+
+        const card = document.createElement('div');
+        card.className = 'video-card';
+        card.innerHTML = `
+          <img class="video-thumb" src="${item.thumbnail}" alt="thumb" loading="lazy" />
+          <div class="video-info">
+            <div class="video-title" title="${item.title}">${item.title}</div>
+            <div class="video-meta">${item.uploaderName} • ${formatDuration(item.duration)} • ID: <code>${videoId}</code></div>
+          </div>
+        `;
+
+        resultsContainer.appendChild(card);
+      });
+    }
+
+    function formatDuration(seconds) {
+      if (!seconds || seconds <= 0) return '0:00';
+      const m = Math.floor(seconds / 60);
+      const s = Math.floor(seconds % 60);
+      return `${m}:${s < 10 ? '0' : ''}${s}`;
+    }
+  </script>
+</body>
+</html>
